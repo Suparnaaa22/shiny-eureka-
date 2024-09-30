@@ -1,0 +1,60 @@
+#include <iostream>
+#include <sys/inotify.h>
+#include <limits.h>
+#include <unistd.h>
+#include <cstring>
+
+void handle_event(struct inotify_event *event) {
+    if (event->mask & IN_CREATE) {
+        std::cout << "File created: " << event->name << std::endl;
+    } else if (event->mask & IN_DELETE) {
+        std::cout << "File deleted: " << event->name << std::endl;
+    } else if (event->mask & IN_MODIFY) {
+        std::cout << "File modified: " << event->name << std::endl;
+    }
+}
+
+int main(int argc, char *argv[]) {
+    if (argc < 2) {
+        std::cerr << "Usage: " << argv[0] << " <directory_to_monitor>" << std::endl;
+        return 1;
+    }
+
+    const char *directory_to_monitor = argv[1];
+    
+    int inotify_fd = inotify_init();
+    if (inotify_fd < 0) {
+        perror("inotify_init");
+        return 1;
+    }
+
+    int watch_descriptor = inotify_add_watch(inotify_fd, directory_to_monitor, 
+                                             IN_CREATE | IN_DELETE | IN_MODIFY);
+    if (watch_descriptor < 0) {
+        perror("inotify_add_watch");
+        close(inotify_fd);
+        return 1;
+    }
+
+    char buffer[1024];
+    
+    std::cout << "Monitoring directory: " << directory_to_monitor << std::endl;
+
+    while (true) {
+        int length = read(inotify_fd, buffer, sizeof(buffer));
+        if (length < 0) {
+            perror("read");
+            break;
+        }
+
+        for (int i = 0; i < length; ) {
+            struct inotify_event *event = (struct inotify_event *)&buffer[i];
+            handle_event(event);
+            i += sizeof(struct inotify_event) + event->len;
+        }
+    }
+
+    inotify_rm_watch(inotify_fd, watch_descriptor);
+    close(inotify_fd);
+    return 0;
+}
